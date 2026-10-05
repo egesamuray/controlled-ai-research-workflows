@@ -47,7 +47,7 @@ piece you can run: an offline integrity check for a synthetic run bundle.
 | Rejecting modified, missing, unlisted or symlinked artifacts, and absolute or `..` manifest paths | Implemented in the offline demo | same |
 | Missing terminal record reported as `UNKNOWN`, never success; failed, malformed or inconsistent records rejected | Implemented in the offline demo | same |
 | Terminal record bound to the manifest by its SHA-256 hash | Implemented in the offline demo | same |
-| Refusing to overwrite an existing bundle or to write outside `demo_runs/` | Implemented in the offline demo | same |
+| Refusing to overwrite an existing path or to write anywhere except a new directory directly inside `demo_runs/` | Implemented in the offline demo | same |
 | Task, review and handoff records | Templates only; nothing enforces them | [`templates/`](templates/) |
 | Single writer, read-only review, deterministic gates | Documented process | [`docs/architecture.md`](docs/architecture.md) |
 | Commit-pinned job submission, run-scoped provenance records, hash-verified retrieval from a cluster | Part of a private workflow; not released | [`docs/verification-and-release-scope.md`](docs/verification-and-release-scope.md#private-workflow-and-this-preview) |
@@ -91,8 +91,9 @@ echo 999 >> demo_runs/run-001/artifacts/sequence.txt
 python3 -B examples/offline_demo.py verify demo_runs/run-001
 ```
 
-Running `create` with an `--out` that already exists is refused with exit
-status 2. The script writes only under `demo_runs/`, which Git ignores.
+`create` refuses, with exit status 2, any `--out` that already exists or is
+not directly inside `demo_runs/`. The script writes only there, and Git ignores
+that directory.
 
 Unit tests:
 

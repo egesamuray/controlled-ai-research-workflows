@@ -14,6 +14,7 @@ import getpass
 import importlib.util
 import io
 import json
+import os
 import shutil
 import socket
 import sys
@@ -92,10 +93,20 @@ class CreateTests(BundleTestCase):
         self.assertEqual(list(self.outside.iterdir()), [])
         self.assertFalse((self.tmp / "x").exists())
 
+    def test_refuses_nested_output(self):
+        bundle = self.make()
+        (self.root / "sub").mkdir()
+        for out in (bundle / "artifacts" / "new", bundle / "new", self.root / "sub" / "x"):
+            with self.subTest(out=out), self.assertRaises(demo.DemoError):
+                demo.create_bundle(out, output_root=self.root)
+        self.assert_status(bundle, "VERIFIED")
+
     def test_refuses_symlinked_parent_escape(self):
         (self.root / "link").symlink_to(self.outside, target_is_directory=True)
-        with self.assertRaises(demo.DemoError):
-            demo.create_bundle(self.root / "link" / "x", output_root=self.root)
+        (self.root / "loop").symlink_to(self.root / "loop")
+        for out in (self.root / "link" / "x", self.root / "loop" / "x"):
+            with self.subTest(out=out), self.assertRaises(demo.DemoError):
+                demo.create_bundle(out, output_root=self.root)
         self.assertEqual(list(self.outside.iterdir()), [])
 
     def test_refuses_existing_symlink_as_bundle_path(self):
@@ -133,9 +144,11 @@ class VerifyTests(BundleTestCase):
         self.assertEqual(demo.verify_bundle(bundle), ("VERIFIED", []))
 
     def test_cli_exit_codes(self):
-        out = self.tmp / "cli-bundle"  # inside the default demo_runs/ root
+        out = REPO_ROOT / "demo_runs" / f"{self.tmp.name}-cli"  # direct child of demo_runs/
+        self.addCleanup(shutil.rmtree, out, True)
         self.assertEqual(self.run_cli("create", "--out", str(out)), 0)
         self.assertEqual(self.run_cli("create", "--out", str(out)), 2)
+        self.assertEqual(self.run_cli("create", "--out", str(self.tmp / "nested")), 2)
         escape = REPO_ROOT / "demo_runs" / ".." / f"{self.tmp.name}-escape"
         self.addCleanup(lambda: escape.is_dir() and shutil.rmtree(escape))  # only if a bug wrote it
         self.assertEqual(self.run_cli("create", "--out", str(escape)), 2)
@@ -173,6 +186,14 @@ class VerifyTests(BundleTestCase):
         (bundle / "manifest.json").unlink()
         self.assert_status(bundle, "INVALID", "manifest unreadable")
 
+    def test_deeply_nested_json_is_invalid(self):
+        for name in ("manifest.json", "terminal.json"):
+            with self.subTest(name):
+                bundle = self.make(name)
+                depth = 524_000  # deep enough to exhaust the parser, still under 1 MiB
+                (bundle / name).write_text("[" * depth + "]" * depth)
+                self.assert_status(bundle, "INVALID", "not JSON")
+
     def test_missing_terminal_is_unknown_not_success(self):
         bundle = self.make(simulate="missing-terminal")
         self.assert_status(bundle, "UNKNOWN", "not success")
@@ -184,25 +205,29 @@ class VerifyTests(BundleTestCase):
         self.assertEqual(self.run_cli("verify", str(bundle)), 1)
 
     def test_malformed_terminal_record(self):
+        fields = "missing or unexpected fields"
         cases = {
-            "not json": lambda p: p.write_text("COMPLETED"),
-            "json list": lambda p: p.write_text("[]"),
-            "missing field": lambda p: self.edit_json(p, drop=["exit_code"]),
-            "extra field": lambda p: self.edit_json(p, unexpected="x"),
-            "string exit code": lambda p: self.edit_json(p, exit_code="0"),
-            "boolean exit code": lambda p: self.edit_json(p, exit_code=False),
-            "out of range exit code": lambda p: self.edit_json(p, exit_code=256),
-            "not synthetic": lambda p: self.edit_json(p, synthetic=False),
-            "unknown state": lambda p: self.edit_json(p, state="SUCCESS"),
-            "bad timestamp": lambda p: self.edit_json(p, ended_at="later"),
-            "naive timestamps": lambda p: self.edit_json(
+            "not json": (lambda p: p.write_text("COMPLETED"), "not JSON"),
+            "json list": (lambda p: p.write_text("[]"), fields),
+            "missing field": (lambda p: self.edit_json(p, drop=["exit_code"]), fields),
+            "extra field": (lambda p: self.edit_json(p, unexpected="x"), fields),
+            "wrong schema": (lambda p: self.edit_json(p, schema="other.v1"), "schema/label"),
+            "wrong label": (lambda p: self.edit_json(p, label="real run"), "schema/label"),
+            "string exit code": (lambda p: self.edit_json(p, exit_code="0"), "exit_code must"),
+            "boolean exit code": (lambda p: self.edit_json(p, exit_code=False), "exit_code must"),
+            "exit code 256": (lambda p: self.edit_json(p, exit_code=256), "exit_code must"),
+            "not synthetic": (lambda p: self.edit_json(p, synthetic=False), "marked synthetic"),
+            "unknown state": (lambda p: self.edit_json(p, state="SUCCESS"), "unknown terminal state"),
+            "bad timestamp": (lambda p: self.edit_json(p, ended_at="later"), "invalid timestamps"),
+            "naive timestamps": (lambda p: self.edit_json(
                 p, started_at="2000-01-01T00:00:00", ended_at="2000-01-01T00:00:05"),
+                "timezone-aware"),
         }
-        for name, corrupt in cases.items():
+        for name, (corrupt, fragment) in cases.items():
             with self.subTest(name):
                 bundle = self.make(name.replace(" ", "-"))
                 corrupt(bundle / "terminal.json")
-                self.assert_status(bundle, "INVALID")
+                self.assert_status(bundle, "INVALID", fragment)
 
     def test_inconsistent_terminal_record(self):
         cases = {
@@ -236,27 +261,37 @@ class VerifyTests(BundleTestCase):
                 self.assertTrue(any("artifact path" in r or "reserved" in r for r in reasons),
                                 reasons)
 
-    def test_rejects_malformed_manifest_entries(self):
+    def test_rejects_malformed_manifest(self):
         def entry(**kw):
             return {"path": "artifacts/summary.json", "bytes": 1, "sha256": "a" * 64, **kw}
+        exact = "must have exactly"
         cases = {
-            "duplicate path": lambda a: a.append(dict(a[0])),
-            "missing sha256": lambda a: a.append({"path": "x", "bytes": 1}),
-            "extra field": lambda a: a.append(entry(path="y", note="x")),
-            "negative size": lambda a: a.append(entry(path="y", bytes=-1)),
-            "boolean size": lambda a: a.append(entry(path="y", bytes=True)),
-            "uppercase hash": lambda a: a.append(entry(path="y", sha256="A" * 64)),
-            "empty list": lambda a: a.clear(),
-            "config not listed": lambda a: a.remove(
-                next(e for e in a if e["path"] == "config.json")),
+            "wrong schema": (lambda m: m.update(schema="other.v1"), "unknown manifest schema"),
+            "wrong label": (lambda m: m.update(label="real run"), "not labeled"),
+            "invalid run_id": (lambda m: m.update(run_id="bad id!"), "invalid run_id"),
+            "extra top-level key": (lambda m: m.update(note="x"), exact),
+            "duplicate path": (lambda m: m["artifacts"].append(dict(m["artifacts"][0])),
+                               "duplicate artifact path"),
+            "missing sha256": (lambda m: m["artifacts"].append({"path": "x", "bytes": 1}), exact),
+            "extra field": (lambda m: m["artifacts"].append(entry(path="y", note="x")), exact),
+            "negative size": (lambda m: m["artifacts"].append(entry(path="y", bytes=-1)),
+                              "invalid size"),
+            "boolean size": (lambda m: m["artifacts"].append(entry(path="y", bytes=True)),
+                             "invalid size"),
+            "uppercase hash": (lambda m: m["artifacts"].append(entry(path="y", sha256="A" * 64)),
+                               "invalid sha256"),
+            "empty list": (lambda m: m["artifacts"].clear(), "artifacts must be a list"),
+            "config not listed": (lambda m: m["artifacts"].remove(
+                next(e for e in m["artifacts"] if e["path"] == "config.json")),
+                "config.json must be listed"),
         }
-        for name, mutate in cases.items():
+        for name, (mutate, fragment) in cases.items():
             with self.subTest(name):
                 bundle = self.make(name.replace(" ", "-"))
                 manifest = json.loads((bundle / "manifest.json").read_text())
-                mutate(manifest["artifacts"])
+                mutate(manifest)
                 (bundle / "manifest.json").write_bytes(demo.canonical_json(manifest))
-                self.assert_status(bundle, "INVALID")
+                self.assert_status(bundle, "INVALID", fragment)
 
     def test_rejects_symlinks_inside_bundle(self):
         def link_file(bundle, rel):
@@ -273,7 +308,9 @@ class VerifyTests(BundleTestCase):
         cases = {"artifact": lambda b: link_file(b, "artifacts/summary.json"),
                  "terminal": lambda b: link_file(b, "terminal.json"),
                  "manifest": lambda b: link_file(b, "manifest.json"),
-                 "artifact dir": lambda b: link_dir(b, "artifacts")}
+                 "artifact dir": lambda b: link_dir(b, "artifacts"),
+                 "unlisted dir": lambda b: (b / "extra").symlink_to(
+                     self.outside, target_is_directory=True)}
         for name, replace in cases.items():
             with self.subTest(name):
                 bundle = self.make(name.replace(" ", "-"))
@@ -287,6 +324,17 @@ class VerifyTests(BundleTestCase):
         link = self.tmp / "bundle-link"
         link.symlink_to(bundle, target_is_directory=True)
         self.assert_status(link, "INVALID", "not a bundle directory")
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0,
+                     "needs a non-root POSIX user for permission checks")
+    def test_reports_unlistable_directory(self):
+        bundle = self.make()
+        hidden = bundle / "hidden"
+        hidden.mkdir()
+        (hidden / "unlisted.txt").write_text("x\n")
+        hidden.chmod(0)
+        self.addCleanup(hidden.chmod, 0o755)  # runs before the directory is removed
+        self.assert_status(bundle, "INVALID", "cannot list directory")
 
     def test_rejects_unlisted_file(self):
         bundle = self.make()

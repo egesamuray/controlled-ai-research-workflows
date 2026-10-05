@@ -10,15 +10,17 @@ For a bundle created by `examples/offline_demo.py`, `verify` checks that:
   digest. No path appears twice, and `config.json` is listed;
 - each listed file is a regular file with no symlink in any path component, and
   its size and hash match the manifest;
-- the bundle contains no unlisted files and no symlinks;
+- the bundle contains no unlisted files and no symlinks, and every directory
+  in it can be listed;
 - `terminal.json`, if present, has exactly the expected fields and is marked
   synthetic. It must name the same run and store the manifest's SHA-256 hash.
   Its state must be known, with a consistent exit code, and its timestamps must
   be timezone-aware and in order.
 
-`create` refuses to write outside `demo_runs/`, including through symlinked
-parent directories. It refuses any existing path, including a symlink, and
-creates each file exclusively.
+`create` accepts only a new directory directly inside `demo_runs/`. It
+refuses other locations, including paths reached through symlinked parent
+directories and paths inside an existing bundle. It refuses any existing path,
+including a symlink, and creates each file exclusively.
 
 ## What it does not verify
 
@@ -46,7 +48,7 @@ Run locally before the initial publication on 2026-10-05, on macOS (Darwin
 | `create --simulate missing-terminal`, then `verify` | `UNKNOWN`, exit 1 |
 | `create --simulate failed`, then `verify` | `FAILED`, exit 1 |
 | append to `artifacts/sequence.txt`, then `verify` | `INVALID`, exit 1 |
-| `python3 -B -m unittest discover -s tests -v` | 24 tests, OK |
+| `python3 -B -m unittest discover -s tests -v` | 27 tests, OK |
 
 The unit tests cover:
 
@@ -54,11 +56,17 @@ The unit tests cover:
 - same-size tampering, and a manifest re-hashed after tampering (caught by the
   terminal record's binding to the manifest);
 - a missing artifact, manifest or terminal record;
-- failed, malformed and inconsistent terminal records;
-- absolute, traversing and reserved manifest paths, and malformed entries;
-- symlinked artifacts, directories, manifest, terminal record and bundle path;
-- unlisted files;
-- output collisions, escapes and symlinked output locations;
+- failed, malformed and inconsistent terminal records, with the expected reason
+  checked for each case;
+- malformed manifests and entries, and absolute, traversing and reserved
+  manifest paths;
+- deeply nested JSON that exhausts the parser;
+- symlinked artifacts, directories, manifest, terminal record and bundle path,
+  and an unlisted directory symlink;
+- unlisted files, and a directory that cannot be listed (skipped when running
+  as root);
+- output collisions, escapes, nested outputs and symlinked or looping output
+  locations;
 - absence of the repository path, home directory, user name and host name from
   the output;
 - CLI exit codes.
@@ -117,7 +125,8 @@ description rests on and what this repository contains.
 |---|---|---|
 | Single writer, independent read-only review, deterministic verification gates | Private instruction and review-policy files | Templates and documentation only |
 | Commit-pinned job submission through one gateway | Private instruction files; the submission code was not reviewed for this write-up | No |
-| Run-scoped provenance record of source commit and dirty state | Private gateway code, read for this write-up | No; the demo uses a synthetic config with no source-revision field |
+| Run-scoped provenance record of source commit and dirty state | Private gateway code, read for this write-up | No; the demo has no source-revision field |
+| Preserving the resolved configuration with each run | Private instruction files | No; the demo's `config.json` is synthetic |
 | Terminal-status classification in which missing evidence is never success | Private gateway code, read for this write-up | A simplified offline subset in the demo |
 | Hash-verified artifact retrieval with manifest path validation | Private gateway code, read for this write-up | A simplified offline subset in the demo |
 

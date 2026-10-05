@@ -50,24 +50,27 @@ Grey: documented only.
 - The writer accepts or rejects each finding with evidence. Rejected findings
   and anything left unreviewed go into the handoff.
 
-In the private workflow, these roles go to different coding agents. Instruction
-files assign them, and the reviewer runs with read-only tools. This repository
-contains only the templates. It does not launch agents or enforce the roles.
+In the private workflow, instruction files assign these roles to different
+coding agents, and its review policy specifies a reviewer limited to read-only
+tools. This repository contains only the templates. It does not launch agents
+or enforce the roles.
 
 ## Commit and configuration binding (documented design)
 
-The private workflow's submission path is designed so that a cluster job runs
-known source with a known configuration:
+The private workflow's instruction files require the following, so that a
+cluster job runs known source with a known configuration:
 
 - the local checkout is clean and its commit has been pushed;
 - the cluster-side checkout is clean and at the same commit;
 - the job re-checks the commit and cleanliness when it starts;
-- the source commit, dirty state and resolved configuration go into a
-  run-scoped provenance record. The record is created new for each run and
-  never overwritten.
+- the resolved configuration is preserved with the run.
 
-A mismatch blocks submission. It is not logged as a warning while the job runs
-anyway.
+The source commit and dirty state go into a run-scoped provenance record. The
+private gateway code read for this write-up creates each record as a new file
+with exclusive creation, so an existing record is not overwritten.
+
+The instructions treat a mismatch as a blocker, not as a warning to log while
+the job runs anyway.
 
 This repository does none of this. It does not inspect Git, synchronize remotes
 or talk to a scheduler. The demo's `config.json` is a synthetic stand-in. The
@@ -75,6 +78,8 @@ bundle has no source-revision field, because the demo has no verified source
 revision to report.
 
 ## Guarded execution (documented design)
+
+The private instruction files also specify:
 
 - One gateway is the only route for submitting, polling, retrieving and
   cancelling jobs.
@@ -94,7 +99,8 @@ ended somehow, but not necessarily well. It may have hit a time or memory
 limit, lost its node, or been cancelled, and its absence from the queue does
 not say which.
 
-The design classifies outcomes like this:
+The private gateway code read for this write-up classifies outcomes roughly
+like this:
 
 | Evidence available | Classification |
 |---|---|
@@ -125,7 +131,7 @@ demo's verification:
 - refuses symlinks in any path component, so a listed path cannot resolve
   outside the bundle;
 - compares the size and hash of every listed file and reports missing and
-  unlisted files;
+  unlisted files, and directories it cannot list;
 - checks that the terminal record stores the manifest's own hash, so the
   recorded outcome and the artifact list refer to the same set of files.
 

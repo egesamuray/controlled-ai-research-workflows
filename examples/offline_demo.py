@@ -70,19 +70,17 @@ def synthetic_artifacts(seed: int, length: int) -> dict[str, bytes]:
 
 
 def _new_bundle_dir(out: Path, output_root: Path) -> Path:
-    """Create a fresh, empty directory strictly inside ``output_root``."""
+    """Create a fresh, empty directory directly inside ``output_root``."""
     if output_root.is_symlink():
         raise DemoError(f"output root must not be a symlink: {output_root}")
-    output_root.mkdir(parents=True, exist_ok=True)
-    root = output_root.resolve(strict=True)
-    if out.name in ("", ".", ".."):
-        raise DemoError(f"invalid bundle directory name: {out}")
     try:
+        output_root.mkdir(parents=True, exist_ok=True)
+        root = output_root.resolve(strict=True)
         parent = out.parent.resolve(strict=True)  # follows symlinked parents
-    except OSError:
-        raise DemoError(f"parent directory does not exist: {out.parent}") from None
-    if parent != root and root not in parent.parents:
-        raise DemoError(f"output must be inside {output_root}: {out}")
+    except (OSError, RuntimeError) as exc:  # RuntimeError: symlink loop before Python 3.13
+        raise DemoError(f"cannot resolve output location {out}: {exc}") from None
+    if out.name in ("", ".", "..") or parent != root:
+        raise DemoError(f"output must be a new directory directly inside {output_root}: {out}")
     target = parent / out.name
     try:
         target.mkdir()  # fails if anything, including a symlink, already exists
@@ -192,7 +190,7 @@ def _terminal_check(bundle: Path, run_id: str,
         record = json.loads(_read_regular(bundle, TERMINAL))
     except FileNotFoundError:
         return None, []
-    except (OSError, ValueError) as exc:  # includes invalid JSON / encoding
+    except (OSError, ValueError, RecursionError) as exc:  # includes invalid/deep JSON
         return None, [f"terminal record unreadable or not JSON: {exc}"]
     if not isinstance(record, dict) or set(record) != TERMINAL_KEYS:
         return None, ["terminal record has missing or unexpected fields"]
@@ -223,7 +221,9 @@ def _terminal_check(bundle: Path, run_id: str,
 
 def _unexpected_entries(bundle: Path, expected: set[str]) -> list[str]:
     problems = []
-    for dirpath, dirnames, filenames in os.walk(bundle):  # does not follow symlinks
+    def unlistable(exc: OSError) -> None:  # os.walk skips such directories silently
+        problems.append(f"cannot list directory: {exc.filename}")
+    for dirpath, dirnames, filenames in os.walk(bundle, onerror=unlistable):  # no symlink follow
         for name in dirnames + filenames:
             path = Path(dirpath, name)
             rel = path.relative_to(bundle).as_posix()
@@ -242,7 +242,7 @@ def verify_bundle(bundle: Path | str) -> tuple[str, list[str]]:
     try:
         manifest_bytes = _read_regular(bundle, MANIFEST)
         manifest = json.loads(manifest_bytes)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         return "INVALID", [f"manifest unreadable or not JSON: {exc}"]
     problems = _manifest_problems(manifest)
     if problems:
@@ -278,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     create = sub.add_parser("create", help="write a new synthetic bundle under demo_runs/")
     create.add_argument("--out", required=True, type=Path,
-                        help="new bundle directory inside demo_runs/ (must not exist)")
+                        help="new bundle directory directly inside demo_runs/ (must not exist)")
     create.add_argument("--simulate", choices=SIMULATIONS, default="completed",
                         help="synthetic terminal outcome to record (default: completed)")
     verify = sub.add_parser("verify", help="verify a bundle; exits 0 only if VERIFIED")
@@ -288,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "create":
         try:
             create_bundle(args.out, simulate=args.simulate)
-        except (DemoError, OSError) as exc:
+        except (DemoError, OSError, RuntimeError) as exc:
             print(f"refused: {exc}", file=sys.stderr)
             return 2
         print(f"[{DEMO_LABEL}] created {args.out} (simulate={args.simulate})")
