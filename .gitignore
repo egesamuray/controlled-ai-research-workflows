@@ -1,0 +1,10 @@
+# Output of examples/offline_demo.py and the tests
+demo_runs/
+
+# Local, unpublished notes and checks
+.local/
+
+# Python and OS clutter
+__pycache__/
+*.py[cod]
+.DS_Store

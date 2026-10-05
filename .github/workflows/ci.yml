@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Python version
+        run: python3 --version
+
+      - name: Quickstart
+        run: |
+          python3 -B examples/offline_demo.py --help
+          python3 -B examples/offline_demo.py create --out demo_runs/run-001
+          python3 -B examples/offline_demo.py verify demo_runs/run-001
+
+      - name: Missing terminal record must not verify
+        run: |
+          python3 -B examples/offline_demo.py create --out demo_runs/run-002 --simulate missing-terminal
+          if python3 -B examples/offline_demo.py verify demo_runs/run-002; then
+            echo "verify accepted a bundle without a terminal record" >&2
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: python3 -B -m unittest discover -s tests -v
