@@ -4,6 +4,9 @@
 
 For a bundle created by `examples/offline_demo.py`, `verify` checks that:
 
+- `manifest.json` and `terminal.json` contain no duplicated key in any JSON
+  object. Python keeps the last duplicate and other parsers may keep the first,
+  so a duplicate could make two tools read different values;
 - `manifest.json` has exactly the expected fields, schema and demo label, and
   between 1 and 64 entries;
 - each entry has a safe relative path, a size and a lowercase SHA-256 hex
@@ -36,8 +39,8 @@ including a symlink, and creates each file exclusively.
 
 ## Tests run on this revision
 
-Run locally before the initial publication on 2026-10-05, on macOS (Darwin
-25.6, arm64) with Python 3.14.7:
+Last run locally on 2026-10-06, on macOS (Darwin 25.6, arm64) with Python
+3.14.7:
 
 | Command | Result |
 |---|---|
@@ -48,7 +51,7 @@ Run locally before the initial publication on 2026-10-05, on macOS (Darwin
 | `create --simulate missing-terminal`, then `verify` | `UNKNOWN`, exit 1 |
 | `create --simulate failed`, then `verify` | `FAILED`, exit 1 |
 | append to `artifacts/sequence.txt`, then `verify` | `INVALID`, exit 1 |
-| `python3 -B -m unittest discover -s tests -v` | 27 tests, OK |
+| `python3 -B -m unittest discover -s tests -v` | 28 tests, OK |
 
 The unit tests cover:
 
@@ -60,7 +63,7 @@ The unit tests cover:
   checked for each case;
 - malformed manifests and entries, and absolute, traversing and reserved
   manifest paths;
-- deeply nested JSON that exhausts the parser;
+- deeply nested JSON that exhausts the parser, and duplicated JSON keys;
 - symlinked artifacts, directories, manifest, terminal record and bundle path,
   and an unlisted directory symlink;
 - unlisted files, and a directory that cannot be listed (skipped when running

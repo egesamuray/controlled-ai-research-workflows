@@ -56,6 +56,16 @@ def canonical_json(value: object) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """JSON object hook: Python keeps the last duplicate, other parsers may not."""
+    obj: dict[str, object] = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError(f"duplicate JSON key: {key!r}")
+        obj[key] = value
+    return obj
+
+
 def synthetic_artifacts(seed: int, length: int) -> dict[str, bytes]:
     """Integer-only pseudo-random data (an LCG), so hashes are platform independent."""
     state, values = seed, []
@@ -187,7 +197,8 @@ def _terminal_check(bundle: Path, run_id: str,
                     manifest_bytes: bytes) -> tuple[str | None, list[str]]:
     """Return (state, problems); state is None when absent or invalid."""
     try:
-        record = json.loads(_read_regular(bundle, TERMINAL))
+        record = json.loads(_read_regular(bundle, TERMINAL),
+                            object_pairs_hook=_reject_duplicate_keys)
     except FileNotFoundError:
         return None, []
     except (OSError, ValueError, RecursionError) as exc:  # includes invalid/deep JSON
@@ -241,7 +252,7 @@ def verify_bundle(bundle: Path | str) -> tuple[str, list[str]]:
         return "INVALID", [f"not a bundle directory: {bundle}"]
     try:
         manifest_bytes = _read_regular(bundle, MANIFEST)
-        manifest = json.loads(manifest_bytes)
+        manifest = json.loads(manifest_bytes, object_pairs_hook=_reject_duplicate_keys)
     except (OSError, ValueError, RecursionError) as exc:
         return "INVALID", [f"manifest unreadable or not JSON: {exc}"]
     problems = _manifest_problems(manifest)

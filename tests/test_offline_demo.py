@@ -194,6 +194,22 @@ class VerifyTests(BundleTestCase):
                 (bundle / name).write_text("[" * depth + "]" * depth)
                 self.assert_status(bundle, "INVALID", "not JSON")
 
+    def test_rejects_duplicate_json_keys(self):
+        # Python's json keeps the last duplicate; other parsers may keep the first.
+        cases = {
+            "terminal": ("terminal.json", '"exit_code": 0,', '"exit_code": 1,\n  "exit_code": 0,'),
+            "manifest": ("manifest.json", '"run_id": "offline-demo-001",',
+                         '"run_id": "other-run",\n  "run_id": "offline-demo-001",'),
+            "manifest-entry": ("manifest.json", '"bytes": 63,', '"bytes": 1,\n      "bytes": 63,'),
+        }
+        for label, (name, old, new) in cases.items():
+            with self.subTest(label):
+                bundle = self.make(label)
+                text = (bundle / name).read_text()
+                self.assertEqual(text.count(old), 1)
+                (bundle / name).write_text(text.replace(old, new))
+                self.assert_status(bundle, "INVALID", "duplicate JSON key")
+
     def test_missing_terminal_is_unknown_not_success(self):
         bundle = self.make(simulate="missing-terminal")
         self.assert_status(bundle, "UNKNOWN", "not success")
