@@ -231,17 +231,19 @@ def _terminal_check(bundle: Path, run_id: str,
 
 
 def _unexpected_entries(bundle: Path, expected: set[str]) -> list[str]:
+    # Names here come from the filesystem, not the validated manifest, so they are
+    # quoted with repr(): a name containing a newline cannot add lines to the report.
     problems = []
     def unlistable(exc: OSError) -> None:  # os.walk skips such directories silently
-        problems.append(f"cannot list directory: {exc.filename}")
+        problems.append(f"cannot list directory: {exc.filename!r}")
     for dirpath, dirnames, filenames in os.walk(bundle, onerror=unlistable):  # no symlink follow
         for name in dirnames + filenames:
             path = Path(dirpath, name)
             rel = path.relative_to(bundle).as_posix()
             if path.is_symlink():
-                problems.append(f"symlink not allowed: {rel}")
+                problems.append(f"symlink not allowed: {rel!r}")
             elif name in filenames and rel not in expected:
-                problems.append(f"unlisted file: {rel}")
+                problems.append(f"unlisted file: {rel!r}")
     return problems
 
 

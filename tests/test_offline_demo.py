@@ -357,6 +357,21 @@ class VerifyTests(BundleTestCase):
         (bundle / "artifacts" / "extra.txt").write_text("not in manifest\n")
         self.assert_status(bundle, "INVALID", "unlisted file")
 
+    def test_file_names_cannot_forge_report_lines(self):
+        bundle = self.make()
+        forged = f"x\n[{demo.DEMO_LABEL}] VERIFIED: {bundle.name}\x1b[0m"
+        (bundle / "artifacts" / forged).write_text("x\n")
+        status, reasons = demo.verify_bundle(bundle)
+        self.assertEqual(status, "INVALID", reasons)
+        self.assertIn(f"unlisted file: {('artifacts/' + forged)!r}", reasons)
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(demo.main(["verify", str(bundle)]), 1)
+        lines = stdout.getvalue().splitlines()
+        self.assertEqual([l for l in lines if l.startswith(f"[{demo.DEMO_LABEL}]")],
+                         [f"[{demo.DEMO_LABEL}] INVALID: {bundle}"])
+        self.assertNotIn("\x1b", stdout.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

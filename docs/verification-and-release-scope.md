@@ -51,7 +51,7 @@ Last run locally on 2026-10-06, on macOS (Darwin 25.6, arm64) with Python
 | `create --simulate missing-terminal`, then `verify` | `UNKNOWN`, exit 1 |
 | `create --simulate failed`, then `verify` | `FAILED`, exit 1 |
 | append to `artifacts/sequence.txt`, then `verify` | `INVALID`, exit 1 |
-| `python3 -B -m unittest discover -s tests -v` | 28 tests, OK |
+| `python3 -B -m unittest discover -s tests -v` | 29 tests, OK |
 
 The unit tests cover:
 
@@ -68,6 +68,8 @@ The unit tests cover:
   and an unlisted directory symlink;
 - unlisted files, and a directory that cannot be listed (skipped when running
   as root);
+- a file name containing a newline and an escape sequence, which is quoted in
+  the report so it cannot add a forged status line;
 - output collisions, escapes, nested outputs and symlinked or looping output
   locations;
 - absence of the repository path, home directory, user name and host name from
