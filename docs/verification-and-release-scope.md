@@ -10,7 +10,9 @@ For a bundle created by `examples/offline_demo.py`, `verify` checks that:
 - `manifest.json` has exactly the expected fields, schema and demo label, and
   between 1 and 64 entries;
 - each entry has a safe relative path, a size and a lowercase SHA-256 hex
-  digest. No path appears twice, and `config.json` is listed;
+  digest. No path appears twice, and `config.json` is listed. No two paths,
+  directories or reserved file names differ only in letter case, because a
+  case-insensitive file system would read them as one file;
 - each listed file is a regular file with no symlink in any path component, and
   its size and hash match the manifest;
 - the bundle contains no unlisted files and no symlinks, and every directory

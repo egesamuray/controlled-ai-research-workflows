@@ -296,6 +296,12 @@ class VerifyTests(BundleTestCase):
                              "invalid size"),
             "uppercase hash": (lambda m: m["artifacts"].append(entry(path="y", sha256="A" * 64)),
                                "invalid sha256"),
+            "case-only duplicate path": (lambda m: m["artifacts"].append(
+                entry(path="artifacts/SUMMARY.json")), "differ only in letter case"),
+            "case-only directory clash": (lambda m: m["artifacts"].append(
+                entry(path="Artifacts/y")), "differ only in letter case"),
+            "case-only reserved name": (lambda m: m["artifacts"].append(
+                entry(path="Terminal.json")), "differ only in letter case"),
             "empty list": (lambda m: m["artifacts"].clear(), "artifacts must be a list"),
             "config not listed": (lambda m: m["artifacts"].remove(
                 next(e for e in m["artifacts"] if e["path"] == "config.json")),

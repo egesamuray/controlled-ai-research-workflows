@@ -190,6 +190,14 @@ def _manifest_problems(manifest: object) -> list[str]:
             problems.append(f"invalid sha256 for {entry['path']!r}")
     if CONFIG not in seen:
         problems.append(f"{CONFIG} must be listed in the manifest")
+    # Names that differ only in case are one file on case-insensitive file systems
+    # (the macOS and Windows defaults), so the verdict would depend on the platform.
+    names = {MANIFEST, TERMINAL}
+    for rel in seen:
+        parts = rel.split("/")
+        names.update("/".join(parts[:i]) for i in range(1, len(parts) + 1))
+    if len({name.lower() for name in names}) != len(names):
+        problems.append("artifact paths must not differ only in letter case")
     return problems
 
 
